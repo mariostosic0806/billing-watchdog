@@ -1,0 +1,93 @@
+name: "Stripe <-> Supabase Billing Integrity Watchdog"
+description: "Read-only diagnostic & reconciliation watchdog for Stripe subscriptions, webhooks, and Postgres/Supabase credit ledgers."
+author: "Billing Integrity Watchdog"
+branding:
+  icon: "shield"
+  color: "green"
+
+# Prerequisite: run actions/checkout first. config-path and sql-path are resolved
+# against the checked-out workspace of the calling repository.
+inputs:
+  command:
+    description: "Watchdog sub-command: 'scan' | 'alert' | 'lint-sql' | 'init' (init only prints a dry-run preview here)"
+    required: false
+    default: "scan"
+  config-path:
+    description: "Path to reconcile.config.json in the checked-out repository"
+    required: false
+    default: "reconcile.config.json"
+  sql-path:
+    description: "lint-sql only: a .sql file or a directory of migrations (e.g. supabase/migrations)"
+    required: false
+    default: ""
+  database-url:
+    description: "Read-only PostgreSQL / Supabase connection URI for a dedicated BYPASSRLS read-only role. The watchdog reads inside one BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY transaction verified with SHOW transaction_read_only. Required for scan, alert and init."
+    required: false
+    default: ""
+  stripe-restricted-key:
+    description: "Stripe restricted key (rk_live_... or rk_test_...) with read-only access to subscriptions, invoices and prices. Full secret keys (sk_...) are refused. Required for scan, alert and init."
+    required: false
+    default: ""
+  slack-webhook-url:
+    description: "Slack Incoming Webhook URL (alert needs this and/or discord-webhook-url)"
+    required: false
+    default: ""
+  discord-webhook-url:
+    description: "Discord Incoming Webhook URL (alert needs this and/or slack-webhook-url)"
+    required: false
+    default: ""
+  fail-on-critical:
+    description: "Exit with code 1 when CRITICAL billing drift or missing schema guards are detected ('true' | 'false')"
+    required: false
+    default: "true"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Setup Node.js 24 (native TypeScript type stripping)
+      uses: actions/setup-node@v5
+      with:
+        node-version: "24"
+
+    - name: Install watchdog runtime dependencies (pg)
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: npm ci --omit=dev --no-audit --no-fund
+
+    # Inputs reach the script only through environment variables, never through
+    # ${{ }} interpolation inside the script body (no shell injection).
+    - name: Run read-only billing integrity watchdog
+      shell: bash
+      env:
+        WD_ACTION_PATH: ${{ github.action_path }}
+        WD_COMMAND: ${{ inputs.command }}
+        WD_CONFIG: ${{ inputs.config-path }}
+        WD_SQL_PATH: ${{ inputs.sql-path }}
+        WD_FAIL_ON_CRITICAL: ${{ inputs.fail-on-critical }}
+        DATABASE_URL: ${{ inputs.database-url }}
+        STRIPE_RESTRICTED_KEY: ${{ inputs.stripe-restricted-key }}
+        SLACK_WEBHOOK_URL: ${{ inputs.slack-webhook-url }}
+        DISCORD_WEBHOOK_URL: ${{ inputs.discord-webhook-url }}
+      run: |
+        set -euo pipefail
+        case "$WD_COMMAND" in
+          scan|alert|lint-sql|init) ;;
+          *) echo "::error::Unsupported command input (expected scan, alert, lint-sql or init)."; exit 2 ;;
+        esac
+        args=("$WD_COMMAND" --config "$WD_CONFIG")
+        case "$WD_FAIL_ON_CRITICAL" in
+          true) args+=(--fail-on-critical) ;;
+          false) args+=(--no-fail-on-critical) ;;
+          *) echo "::error::fail-on-critical must be 'true' or 'false'."; exit 2 ;;
+        esac
+        if [ "$WD_COMMAND" = "init" ]; then
+          args+=(--dry-run)
+        fi
+        if [ "$WD_COMMAND" = "lint-sql" ]; then
+          if [ -z "$WD_SQL_PATH" ]; then
+            echo "::error::lint-sql needs the sql-path input."
+            exit 2
+          fi
+          args+=(--sql-file "$WD_SQL_PATH")
+        fi
+        node "$WD_ACTION_PATH/src/cli.ts" "${args[@]}"

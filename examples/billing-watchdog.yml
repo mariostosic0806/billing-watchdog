@@ -1,0 +1,105 @@
+# ==============================================================================
+# Drop-in workflow for Next.js + Supabase + Stripe teams.
+# Copy to .github/workflows/billing-watchdog.yml in YOUR repository.
+#
+# Zero exfiltration: runs inside your own GitHub Actions runner, reads Postgres in
+# one READ ONLY transaction and Stripe with a read-only restricted key (rk_*).
+# Only the optional Slack/Discord alert leaves the runner.
+#
+# Prerequisites
+#   1. reconcile.config.json committed at the repository root
+#      (preview one locally with: node src/cli.ts init --dry-run, see README).
+#   2. Repository secrets:
+#        READONLY_DATABASE_URL  dedicated read-only BYPASSRLS role (README "Read-only database role")
+#        STRIPE_RESTRICTED_KEY  rk_live_... with read access to subscriptions, invoices, prices
+#        SLACK_WEBHOOK_URL / DISCORD_WEBHOOK_URL  optional, used by the nightly alert
+#
+# `@main` follows the latest code: pin it to a release tag or a full commit SHA in production.
+# ==============================================================================
+name: Billing Integrity & Reconciliation Watchdog
+
+on:
+  schedule:
+    # Every night at 02:00 UTC: scan, and alert when a webhook secret is set.
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+    inputs:
+      command:
+        description: "Watchdog command to run"
+        required: false
+        default: "scan"
+        type: choice
+        options:
+          - scan
+          - alert
+  pull_request:
+    paths:
+      - "reconcile.config.json"
+      - "supabase/migrations/**"
+
+permissions:
+  contents: read
+
+jobs:
+  lint-migrations:
+    # Zero-credential: lints the SQL migrations of the pull request. No database,
+    # no Stripe key, so it is also safe for pull requests from forks.
+    if: github.event_name == 'pull_request'
+    name: Offline SQL migration lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Lint billing migrations (Checks 1-3)
+        uses: mariostosic0806/billing-watchdog@main # pin to a release tag or commit SHA
+        with:
+          command: lint-sql
+          config-path: reconcile.config.json
+          sql-path: supabase/migrations
+
+  reconcile:
+    if: github.event_name != 'pull_request'
+    name: Read-only Stripe <-> Postgres/Supabase reconciliation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Secrets are mapped to env at job level: step `if:` conditions cannot read `secrets`.
+    env:
+      DATABASE_URL: ${{ secrets.READONLY_DATABASE_URL }}
+      STRIPE_RESTRICTED_KEY: ${{ secrets.STRIPE_RESTRICTED_KEY }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Require the read-only credentials
+        if: env.DATABASE_URL == '' || env.STRIPE_RESTRICTED_KEY == ''
+        run: |
+          echo "::error::Set the READONLY_DATABASE_URL and STRIPE_RESTRICTED_KEY repository secrets."
+          exit 1
+
+      - name: Choose command
+        id: cmd
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REQUESTED_COMMAND: ${{ inputs.command }}
+        run: |
+          cmd="scan"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ -n "$REQUESTED_COMMAND" ]; then
+            cmd="$REQUESTED_COMMAND"
+          elif [ "$EVENT_NAME" = "schedule" ] && { [ -n "$SLACK_WEBHOOK_URL" ] || [ -n "$DISCORD_WEBHOOK_URL" ]; }; then
+            cmd="alert"
+          fi
+          echo "command=$cmd" >> "$GITHUB_OUTPUT"
+
+      - name: Run read-only billing integrity watchdog
+        uses: mariostosic0806/billing-watchdog@main # pin to a release tag or commit SHA
+        with:
+          command: ${{ steps.cmd.outputs.command }}
+          config-path: reconcile.config.json
+          database-url: ${{ env.DATABASE_URL }}
+          stripe-restricted-key: ${{ env.STRIPE_RESTRICTED_KEY }}
+          slack-webhook-url: ${{ env.SLACK_WEBHOOK_URL }}
+          discord-webhook-url: ${{ env.DISCORD_WEBHOOK_URL }}

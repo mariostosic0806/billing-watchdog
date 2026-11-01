@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+src/
+test/
+package.json
+tsconfig.json
+reconcile.config.json
+CLAUDE.md
+examples/watchdog_atomic_webhook.sql
+examples/nextjs-stripe-webhook-route.ts

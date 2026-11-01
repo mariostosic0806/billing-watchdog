@@ -1,0 +1,572 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SafeRevert — Deterministic Shopify Bulk Price Scheduler & Free Recovery CSV Simulator</title>
+  <style>
+    :root {
+      --bg: #0b0f17;
+      --card: #131b2e;
+      --card-alt: #18233c;
+      --border: #263554;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --accent: #10b981;
+      --accent-hover: #059669;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+      --info: #3b82f6;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    .container { max-width: 1180px; margin: 0 auto; padding: 28px 20px 64px; }
+    header {
+      display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center;
+      gap: 16px; padding-bottom: 22px; border-bottom: 1px solid var(--border); margin-bottom: 28px;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .badge {
+      display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 12px;
+      font-weight: 600; background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.35);
+    }
+    h1 { font-size: 28px; margin: 6px 0; letter-spacing: -0.02em; }
+    h2 { font-size: 20px; margin: 0 0 12px; }
+    p.sub { color: var(--muted); margin: 0; font-size: 15px; max-width: 760px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 24px; }
+    @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+    .card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px;
+    }
+    label { display: block; font-size: 13px; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
+    input, select, textarea {
+      width: 100%; background: #090d16; color: var(--text); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 12px; font-size: 14px; font-family: inherit;
+    }
+    textarea { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
+    .controls-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 12px; }
+    @media (max-width: 640px) { .controls-row { grid-template-columns: 1fr; } }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      background: var(--accent); color: #04130d; font-weight: 700; border: none;
+      padding: 11px 18px; border-radius: 8px; cursor: pointer; font-size: 14px; text-decoration: none;
+    }
+    .btn:hover { background: var(--accent-hover); color: #fff; }
+    .btn-secondary {
+      background: var(--card-alt); color: var(--text); border: 1px solid var(--border); font-weight: 600;
+    }
+    .btn-secondary:hover { background: #223254; }
+    .stats-bar {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 16px 0;
+    }
+    .stat-box {
+      background: var(--card-alt); border: 1px solid var(--border); border-radius: 8px; padding: 12px;
+    }
+    .stat-val { font-size: 22px; font-weight: 700; }
+    .stat-lbl { font-size: 12px; color: var(--muted); }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 10px; }
+    th, td { border-bottom: 1px solid var(--border); padding: 9px 10px; text-align: left; }
+    th { color: var(--muted); font-weight: 600; background: #0f1626; }
+    .pill {
+      display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: 600; margin: 2px 4px 2px 0;
+    }
+    .pill-danger { background: rgba(239,68,68,0.18); color: #fca5a5; border: 1px solid rgba(239,68,68,0.4); }
+    .pill-warn { background: rgba(245,158,11,0.18); color: #fcd34d; border: 1px solid rgba(245,158,11,0.4); }
+    .pill-ok { background: rgba(16,185,129,0.16); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.35); }
+    .plans { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 16px; }
+    @media (max-width: 860px) { .plans { grid-template-columns: 1fr; } }
+    .plan-card {
+      background: var(--card-alt); border: 1px solid var(--border); border-radius: 10px; padding: 18px;
+      display: flex; flex-direction: column; justify-content: space-between;
+    }
+    .plan-price { font-size: 26px; font-weight: 800; margin: 8px 0; color: #34d399; }
+    ul.feat { padding-left: 18px; color: var(--muted); font-size: 13.5px; margin: 10px 0 18px; }
+    ul.feat li { margin-bottom: 6px; }
+    footer { margin-top: 44px; padding-top: 20px; border-top: 1px solid var(--border); color: var(--muted); font-size: 13px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+    a { color: #38bdf8; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <div class="brand">
+          <span class="badge">100% Client-Side • Zero Login Required • Integer-Cent Engine</span>
+          <span class="badge" style="background:rgba(59,130,246,0.15);color:#93c5fd;border-color:rgba(59,130,246,0.35);">EU Omnibus 30d + Unit Cost Guard</span>
+        </div>
+        <h1>SafeRevert Bulk Price Editor &amp; Recovery CSV Simulator</h1>
+        <p class="sub">
+          Never reinstate Shopify prices from memory again. Simulate your flash sale in integer cents, catch below-cost margin losses &amp; EU Omnibus 30-day violations before touching your storefront, and generate an instant <strong>1-Click Original-Price Recovery CSV</strong>.
+        </p>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <a href="#install-shopify" class="btn">Install on Shopify</a>
+        <a href="https://mariostosic0806.github.io/billing-watchdog/" class="btn btn-secondary">Stripe ↔ Postgres Watchdog →</a>
+      </div>
+    </header>
+
+    <div class="grid">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <h2>1. Paste Shopify Product Export CSV</h2>
+          <button type="button" class="btn btn-secondary" style="padding:6px 12px;font-size:12px;" onclick="loadSampleCsv()">Load Sample CSV</button>
+        </div>
+        <p style="font-size:12.5px;color:var(--muted);margin-top:0;">
+          Processed <strong>100% locally in your browser</strong> (zero server uploads). Supports standard Shopify columns: <code>Handle, Variant SKU, Variant Price, Variant Compare At Price, Cost per item, Lowest 30d Price</code>.
+        </p>
+        <textarea id="csv-input" rows="9"></textarea>
+        <div style="margin-top:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <label style="margin:0;cursor:pointer;" class="btn btn-secondary">
+            Upload .CSV File
+            <input type="file" id="csv-file" accept=".csv,text/csv" style="display:none;" onchange="handleFileUpload(event)" />
+          </label>
+          <span id="file-status" style="font-size:12px;color:var(--muted);">Using built-in 6-SKU BFCM sample catalog.</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>2. Configure Flash Sale &amp; Safety Guardrails</h2>
+        <div class="controls-row">
+          <div>
+            <label for="currency">Currency (ISO-4217 2-Dec)</label>
+            <select id="currency" onchange="runSimulation()">
+              <option value="USD">USD ($)</option>
+              <option value="EUR">EUR (€)</option>
+              <option value="GBP">GBP (£)</option>
+              <option value="CAD">CAD ($)</option>
+              <option value="AUD">AUD ($)</option>
+              <option value="CHF">CHF</option>
+              <option value="SEK">SEK</option>
+              <option value="PLN">PLN</option>
+              <option value="RSD">RSD</option>
+              <option value="JPY">JPY (Test 0-Dec Reject)</option>
+            </select>
+          </div>
+          <div>
+            <label for="discount-type">Discount Type</label>
+            <select id="discount-type" onchange="runSimulation()">
+              <option value="PERCENTAGE">Percentage (%)</option>
+              <option value="FIXED_AMOUNT">Fixed Amount (Cents)</option>
+            </select>
+          </div>
+          <div>
+            <label for="discount-val">Discount Value</label>
+            <input type="number" id="discount-val" value="25" min="1" max="100000" oninput="runSimulation()" />
+          </div>
+        </div>
+
+        <div class="controls-row">
+          <div>
+            <label for="discount-base">Calculate Off</label>
+            <select id="discount-base" onchange="runSimulation()">
+              <option value="BASELINE_PRICE">Current Selling Price</option>
+              <option value="BASELINE_COMPARE_AT">MSRP (Compare At Price)</option>
+            </select>
+          </div>
+          <div>
+            <label for="round-to">Charm Rounding</label>
+            <select id="round-to" onchange="runSimulation()">
+              <option value="99">Round to .99</option>
+              <option value="95">Round to .95</option>
+              <option value="0">Round to .00</option>
+              <option value="">Exact Cents (No Rounding)</option>
+            </select>
+          </div>
+          <div>
+            <label for="omnibus-cap">EU Omnibus 30d Guard</label>
+            <select id="omnibus-cap" onchange="runSimulation()">
+              <option value="warn">Flag Violations Only</option>
+              <option value="cap">Auto-Cap Compare-At to 30d Low</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;">
+          <button type="button" class="btn" onclick="runSimulation()">Run Deterministic Dry-Run Preview</button>
+          <button type="button" class="btn btn-secondary" onclick="downloadCsv('recovery')">⬇ Download Baseline Recovery CSV</button>
+          <button type="button" class="btn btn-secondary" onclick="downloadCsv('discounted')">⬇ Download Discounted Sale CSV</button>
+        </div>
+        <div id="error-banner" style="display:none;margin-top:12px;padding:10px 12px;border-radius:8px;background:rgba(239,68,68,0.18);border:1px solid var(--danger);color:#fca5a5;font-size:13px;"></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:24px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+        <h2>3. Pre-Flight Dry-Run Preview (Old State → New State in Integer Cents)</h2>
+        <span style="font-size:12.5px;color:var(--muted);">Zero IEEE-754 floating-point math • Ready for Shopify Admin → Products → Import</span>
+      </div>
+
+      <div class="stats-bar">
+        <div class="stat-box">
+          <div class="stat-val" id="st-total">0</div>
+          <div class="stat-lbl">Variants Simulated</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-val" id="st-warn" style="color:var(--warn);">0</div>
+          <div class="stat-lbl">Total Guardrail Warnings</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-val" id="st-cost" style="color:var(--danger);">0</div>
+          <div class="stat-lbl">Below Unit Cost (Margin Loss)</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-val" id="st-omnibus" style="color:#60a5fa;">0</div>
+          <div class="stat-lbl">EU Omnibus 30d Alerts</div>
+        </div>
+      </div>
+
+      <div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Handle / SKU</th>
+              <th>Baseline Price</th>
+              <th>Baseline Compare-At</th>
+              <th>Unit Cost</th>
+              <th>30d Low</th>
+              <th>New Sale Price</th>
+              <th>New Compare-At</th>
+              <th>Effective %</th>
+              <th>Guardrail Status</th>
+            </tr>
+          </thead>
+          <tbody id="preview-tbody"></tbody>
+        </table>
+      </div>
+
+      <div class="grid" style="margin-top:18px;margin-bottom:0;">
+        <div>
+          <label>Baseline Recovery Rollback CSV (Import to restore 100% exact pre-sale prices)</label>
+          <textarea id="out-recovery" rows="6" readonly></textarea>
+        </div>
+        <div>
+          <label>Discounted Sale CSV (Import to launch sale)</label>
+          <textarea id="out-discounted" rows="6" readonly></textarea>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="install-shopify">
+      <h2>4. Automate Scheduled Sales &amp; Auto-Rollback inside Shopify Admin</h2>
+      <p class="sub">
+        Want automatic UTC/IANA scheduling, multi-campaign overlap resolution, <strong>1-Variant Live Canary Testing</strong>, and automatic <code>SKIPPED_MANUAL_EDIT</code> protection when your team edits a SKU mid-sale? All plans are billed transparently through the official <strong>Shopify Billing API</strong> (never auto-upgraded without your confirmation).
+      </p>
+
+      <div class="plans">
+        <div class="plan-card">
+          <div>
+            <span class="badge">FREE STARTER</span>
+            <div class="plan-price">$0.00 <span style="font-size:14px;color:var(--muted);font-weight:400;">/ month</span></div>
+            <div style="font-size:13px;color:var(--text);font-weight:600;">Up to 50 variants per campaign</div>
+            <ul class="feat">
+              <li>Deterministic Integer-Cent Engine</li>
+              <li>Mandatory Dry-Run Preview &amp; Margin Guard</li>
+              <li>1-Variant Live Canary Test Mode</li>
+              <li>Mid-Sale Manual Edit Protection (<code>SKIPPED_MANUAL_EDIT</code>)</li>
+              <li>In-Memory Recovery CSV Export</li>
+            </ul>
+          </div>
+          <button class="btn btn-secondary" onclick="requestShopifyInstall('FREE')">Install Free Plan on Shopify</button>
+        </div>
+
+        <div class="plan-card" style="border-color:var(--accent);">
+          <div>
+            <span class="badge">MOST POPULAR • BASIC</span>
+            <div class="plan-price">$9.99 <span style="font-size:14px;color:var(--muted);font-weight:400;">/ month</span></div>
+            <div style="font-size:13px;color:var(--text);font-weight:600;">Up to 1,000 variants per campaign</div>
+            <ul class="feat">
+              <li>Everything in Free Starter</li>
+              <li>Automated UTC / IANA Timezone Scheduling</li>
+              <li>EU Omnibus 30-Day Lowest Price Tracker &amp; Auto-Cap</li>
+              <li>Unit-Cost (COGS) Negative Margin Protection</li>
+              <li>MSRP (<code>compare_at_price</code>) Discount Base</li>
+            </ul>
+          </div>
+          <button class="btn" onclick="requestShopifyInstall('BASIC')">Start Basic ($9.99/mo via Shopify)</button>
+        </div>
+
+        <div class="plan-card">
+          <div>
+            <span class="badge">PRO UNLIMITED</span>
+            <div class="plan-price">$19.99 <span style="font-size:14px;color:var(--muted);font-weight:400;">/ month</span></div>
+            <div style="font-size:13px;color:var(--text);font-weight:600;">Unlimited variants &amp; overlapping campaigns</div>
+            <ul class="feat">
+              <li>Everything in Basic Plan</li>
+              <li>Unlimited Catalog Variants (Cursor Paginated)</li>
+              <li>3+ Overlapping Campaign Combinatorics</li>
+              <li>Chunked Outbox Batching &amp; Read-Back Verification</li>
+              <li>Priority Engineering Support</li>
+            </ul>
+          </div>
+          <button class="btn btn-secondary" onclick="requestShopifyInstall('PRO')">Start Pro ($19.99/mo via Shopify)</button>
+        </div>
+      </div>
+
+      <div style="margin-top:18px;padding:14px;background:#090d16;border:1px solid var(--border);border-radius:8px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;">
+        <div style="font-size:13.5px;">
+          <strong>Instant Store Onboarding:</strong> Enter your <code>.myshopify.com</code> domain to request your 1-click OAuth install link:
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;flex:1;max-width:520px;">
+          <input type="text" id="shop-domain-input" placeholder="your-store.myshopify.com" style="flex:1;min-width:210px;" />
+          <button type="button" class="btn" onclick="requestShopifyInstall('BASIC')">Get Install Link</button>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      <div>© 2026 Prime Tech • Engineered by Mario Stosic (<a href="mailto:mariostosic@prime-tech.rs">mariostosic@prime-tech.rs</a>)</div>
+      <div>
+        <a href="mailto:mariostosic@prime-tech.rs">Contact Support</a> ·
+        <a href="https://mariostosic0806.github.io/billing-watchdog/">Billing Watchdog (Stripe ↔ Postgres)</a>
+      </div>
+    </footer>
+  </div>
+
+  <script>
+    const SAMPLE_CSV = [
+      "Handle,Variant SKU,Variant Price,Variant Compare At Price,Cost per item,Lowest 30d Price",
+      "leather-weekender-bag,BAG-001,120.00,150.00,65.00,110.00",
+      "merino-travel-hoodie,HD-002,89.00,,52.00,89.00",
+      " brass-keychain-clip,KEY-003,6.00,8.00,3.50,6.00",
+      "silk-sleep-mask,MSK-004,35.00,45.00,29.00,35.00",
+      "canvas-doppkitt,DOP-005,48.00,60.00,22.00,42.00",
+      "gift-card-clearance,CLR-006,2.00,5.00,1.20,2.00"
+    ].join("\n");
+
+    const ZERO_DEC = new Set(["BIF","CLP","DJF","GNF","HUF","ISK","JPY","KMF","KRW","MGA","PYG","RWF","TWD","UGX","VND","VUV","XAF","XOF","XPF"]);
+    const SUPPORTED_2DEC = new Set(["USD","EUR","GBP","CAD","AUD","NZD","CHF","SEK","NOK","DKK","PLN","CZK","RON","RSD","BAM","SGD","HKD","MXN","BRL"]);
+
+    function formatCents(cents) {
+      const whole = Math.trunc(cents / 100);
+      const minor = Math.abs(cents % 100);
+      return whole + "." + String(minor).padStart(2, "0");
+    }
+
+    function parseDecimalToCents(str) {
+      const trimmed = String(str || "").trim();
+      const m = /^(\d+)(?:\.(\d{1,2}))?$/.exec(trimmed);
+      if (!m) throw new Error('Invalid 2-decimal currency amount: "' + str + '"');
+      return Number.parseInt(m[1], 10) * 100 + Number.parseInt((m[2] || "00").padEnd(2, "0"), 10);
+    }
+
+    function parseCsvRfc4180(csvText) {
+      const rows = [];
+      let row = [], field = "", inQuotes = false;
+      let i = csvText.charCodeAt(0) === 0xfeff ? 1 : 0;
+      for (; i < csvText.length; i++) {
+        const ch = csvText[i];
+        if (inQuotes) {
+          if (ch === '"') {
+            if (csvText[i + 1] === '"') { field += '"'; i++; }
+            else inQuotes = false;
+          } else field += ch;
+          continue;
+        }
+        if (ch === '"') inQuotes = true;
+        else if (ch === ",") { row.push(field); field = ""; }
+        else if (ch === "\r" || ch === "\n") {
+          if (ch === "\r" && csvText[i + 1] === "\n") i++;
+          row.push(field); rows.push(row); row = []; field = "";
+        } else field += ch;
+      }
+      if (field !== "" || row.length > 0) { row.push(field); rows.push(row); }
+      return rows;
+    }
+
+    function escapeCsv(val) {
+      if (val === null || val === undefined) return "";
+      const s = String(val);
+      return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }
+
+    function loadSampleCsv() {
+      document.getElementById("csv-input").value = SAMPLE_CSV;
+      document.getElementById("file-status").textContent = "Loaded 6-SKU BFCM sample catalog.";
+      runSimulation();
+    }
+
+    function handleFileUpload(ev) {
+      const file = ev.target.files && ev.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        document.getElementById("csv-input").value = String(e.target.result || "");
+        document.getElementById("file-status").textContent = "Loaded file: " + file.name;
+        runSimulation();
+      };
+      reader.readAsText(file);
+    }
+
+    function runSimulation() {
+      const errBanner = document.getElementById("error-banner");
+      errBanner.style.display = "none";
+      try {
+        const currency = document.getElementById("currency").value;
+        if (ZERO_DEC.has(currency)) {
+          throw new Error('Unsupported currency "' + currency + '": Zero-decimal ISO-4217 currencies (e.g. JPY, KRW) are explicitly rejected to prevent 100x minor-unit scaling errors.');
+        }
+        if (!SUPPORTED_2DEC.has(currency)) {
+          throw new Error('Currency "' + currency + '" is not in the verified 2-decimal ISO-4217 allowlist.');
+        }
+
+        const discountType = document.getElementById("discount-type").value;
+        const discountVal = Math.trunc(Number(document.getElementById("discount-val").value || 0));
+        if (discountVal <= 0) throw new Error("Discount value must be a positive integer.");
+        if (discountType === "PERCENTAGE" && discountVal > 100) throw new Error("Percentage discount cannot exceed 100%.");
+
+        const discountBase = document.getElementById("discount-base").value;
+        const roundRaw = document.getElementById("round-to").value;
+        const roundToCents = roundRaw === "" ? null : Number.parseInt(roundRaw, 10);
+        const enforceOmnibusCap = document.getElementById("omnibus-cap").value === "cap";
+
+        const rawLines = parseCsvRfc4180(document.getElementById("csv-input").value || "")
+          .map(r => r.map(c => c.trim()))
+          .filter(r => r.some(c => c.length > 0));
+        if (rawLines.length < 2) throw new Error("CSV must include a header row and at least 1 variant row.");
+
+        const headers = rawLines[0].map(h => h.toLowerCase());
+        const handleIdx = headers.findIndex(h => h === "handle");
+        const skuIdx = headers.findIndex(h => h === "variant sku" || h === "sku");
+        const priceIdx = headers.findIndex(h => h === "variant price" || h === "price");
+        const compareIdx = headers.findIndex(h => h === "variant compare at price" || h === "compare at price");
+        const costIdx = headers.findIndex(h => h === "cost per item" || h === "unit cost" || h === "cost");
+        const low30Idx = headers.findIndex(h => h === "lowest 30d price" || h === "lowest 30-day price" || h === "omnibus 30d low");
+
+        if (priceIdx === -1) throw new Error('CSV header must include "Variant Price" (or "Price").');
+
+        const items = [];
+        for (let i = 1; i < rawLines.length; i++) {
+          const cols = rawLines[i];
+          if (!cols[priceIdx]) continue;
+          const handle = handleIdx >= 0 && cols[handleIdx] ? cols[handleIdx] : "item-" + i;
+          const sku = skuIdx >= 0 && cols[skuIdx] ? cols[skuIdx] : "SKU-" + i;
+          const origPrice = parseDecimalToCents(cols[priceIdx]);
+          const rawComp = compareIdx >= 0 ? cols[compareIdx] || "" : "";
+          const parsedComp = rawComp !== "" ? parseDecimalToCents(rawComp) : null;
+          const origComp = parsedComp !== null && parsedComp >= origPrice ? parsedComp : null;
+          const unitCost = costIdx >= 0 && cols[costIdx] ? parseDecimalToCents(cols[costIdx]) : null;
+          const low30 = low30Idx >= 0 && cols[low30Idx] ? parseDecimalToCents(cols[low30Idx]) : null;
+
+          const refBase = discountBase === "BASELINE_COMPARE_AT" && origComp !== null && origComp > origPrice ? origComp : origPrice;
+          let rawTarget = discountType === "PERCENTAGE"
+            ? Math.trunc((refBase * (100 - discountVal)) / 100)
+            : refBase - discountVal;
+          if (rawTarget > origPrice) rawTarget = origPrice;
+
+          let clampedFloor = false;
+          if (rawTarget < 1) { rawTarget = 1; clampedFloor = true; }
+          let finalPrice = rawTarget;
+
+          if (roundToCents !== null && !clampedFloor) {
+            const bw = Math.trunc(rawTarget / 100);
+            const cands = [(bw - 1) * 100 + roundToCents, bw * 100 + roundToCents, (bw + 1) * 100 + roundToCents]
+              .filter(c => c >= 1 && c <= origPrice);
+            if (cands.length > 0) {
+              cands.sort((a, b) => Math.abs(a - rawTarget) - Math.abs(b - rawTarget) || a - b);
+              finalPrice = cands[0];
+            } else {
+              finalPrice = 1; clampedFloor = true;
+            }
+          }
+
+          const warnings = [];
+          if (clampedFloor) warnings.push({ code: "FLOOR_CLAMPED_TO_MIN_PRICE", type: "warn" });
+
+          const unroundedBps = Math.trunc(((refBase - rawTarget) * 10000) / refBase);
+          const effBps = Math.trunc(((refBase - finalPrice) * 10000) / refBase);
+          if (roundToCents !== null && Math.abs(effBps - unroundedBps) > 500) {
+            warnings.push({ code: "ROUNDING_DRIFT_EXCEEDS_5PP (" + (Math.abs(effBps - unroundedBps) / 100).toFixed(1) + "pp)", type: "warn" });
+          }
+
+          if (unitCost !== null && finalPrice < unitCost) {
+            warnings.push({ code: "BELOW_UNIT_COST_MARGIN_LOSS (-" + formatCents(unitCost - finalPrice) + ")", type: "danger" });
+          }
+
+          let newComp = origComp !== null && origComp >= origPrice ? origComp : origPrice;
+          let autoClamped = false;
+          if (enforceOmnibusCap && low30 !== null && newComp > low30) {
+            newComp = Math.max(finalPrice, low30);
+            autoClamped = true;
+          }
+          if (low30 !== null && newComp > low30 && (!enforceOmnibusCap || newComp > finalPrice)) {
+            warnings.push({ code: "OMNIBUS_30D_VIOLATION (+" + formatCents(newComp - low30) + " > 30d low)", type: "warn" });
+          }
+
+          items.push({
+            handle, sku, origPrice, origComp, unitCost, low30, finalPrice, newComp,
+            effPct: (effBps / 100).toFixed(2) + "%", warnings, autoClamped
+          });
+        }
+
+        document.getElementById("st-total").textContent = String(items.length);
+        document.getElementById("st-warn").textContent = String(items.reduce((a, x) => a + x.warnings.length, 0));
+        document.getElementById("st-cost").textContent = String(items.filter(x => x.warnings.some(w => w.code.startsWith("BELOW_UNIT_COST"))).length);
+        document.getElementById("st-omnibus").textContent = String(items.filter(x => x.warnings.some(w => w.code.startsWith("OMNIBUS_30D")) || x.autoClamped).length);
+
+        const tbody = document.getElementById("preview-tbody");
+        tbody.innerHTML = items.map(it => {
+          const pills = it.warnings.length === 0
+            ? (it.autoClamped ? '<span class="pill pill-ok">OMNIBUS_AUTO_CAPPED</span>' : '<span class="pill pill-ok">SAFE</span>')
+            : it.warnings.map(w => '<span class="pill ' + (w.type === "danger" ? "pill-danger" : "pill-warn") + '">' + w.code + '</span>').join("");
+          return "<tr>" +
+            "<td><strong>" + it.handle + "</strong><br/><span style='color:var(--muted);font-size:11.5px;'>" + it.sku + "</span></td>" +
+            "<td>" + formatCents(it.origPrice) + "</td>" +
+            "<td>" + (it.origComp !== null ? formatCents(it.origComp) : "—") + "</td>" +
+            "<td>" + (it.unitCost !== null ? formatCents(it.unitCost) : "—") + "</td>" +
+            "<td>" + (it.low30 !== null ? formatCents(it.low30) : "—") + "</td>" +
+            "<td style='font-weight:700;color:#34d399;'>" + formatCents(it.finalPrice) + "</td>" +
+            "<td>" + formatCents(it.newComp) + "</td>" +
+            "<td>" + it.effPct + "</td>" +
+            "<td>" + pills + "</td>" +
+          "</tr>";
+        }).join("");
+
+        const hdr = "Handle,Variant SKU,Variant Price,Variant Compare At Price";
+        document.getElementById("out-recovery").value = [hdr].concat(items.map(it =>
+          [escapeCsv(it.handle), escapeCsv(it.sku), formatCents(it.origPrice), it.origComp !== null ? formatCents(it.origComp) : ""].join(",")
+        )).join("\n");
+
+        document.getElementById("out-discounted").value = [hdr].concat(items.map(it =>
+          [escapeCsv(it.handle), escapeCsv(it.sku), formatCents(it.finalPrice), formatCents(it.newComp)].join(",")
+        )).join("\n");
+      } catch (err) {
+        errBanner.textContent = err.message || String(err);
+        errBanner.style.display = "block";
+      }
+    }
+
+    function downloadCsv(kind) {
+      const content = document.getElementById(kind === "recovery" ? "out-recovery" : "out-discounted").value;
+      if (!content) return;
+      const blob = new Blob([content], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = kind === "recovery" ? "shopify-baseline-recovery-rollback.csv" : "shopify-discounted-sale.csv";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    function requestShopifyInstall(planId) {
+      const shop = (document.getElementById("shop-domain-input").value || "").trim() || "your-store.myshopify.com";
+      const subj = encodeURIComponent("SafeRevert Shopify Install Request (" + planId + " Plan) - " + shop);
+      const body = encodeURIComponent(
+        "Hi Mario,\n\nI tested the SafeRevert CSV Simulator and would like to install SafeRevert (" + planId + " plan) on our Shopify store:\n\nShop domain: " + shop + "\n\nPlease send over our 1-click OAuth install link.\n"
+      );
+      window.location.href = "mailto:mariostosic@prime-tech.rs?subject=" + subj + "&body=" + body;
+    }
+
+    loadSampleCsv();
+  </script>
+</body>
+</html>
+
+
