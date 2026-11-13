@@ -64,7 +64,10 @@ runs:
     - name: Install watchdog runtime dependencies (pg)
       shell: bash
       working-directory: ${{ github.action_path }}
-      run: npm ci --omit=dev --no-audit --no-fund
+      run: |
+        if [ -f package.json ]; then
+          npm ci --omit=dev --no-audit --no-fund
+        fi
 
     # Inputs reach the script only through environment variables, never through
     # ${{ }} interpolation inside the script body (no shell injection).
@@ -127,4 +130,8 @@ runs:
             args+=(--mcp-lock "$WD_MCP_LOCK")
           fi
         fi
-        node "$WD_ACTION_PATH/src/cli.ts" "${args[@]}"
+        if [ -f "$WD_ACTION_PATH/src/cli.ts" ]; then
+          node "$WD_ACTION_PATH/src/cli.ts" "${args[@]}"
+        else
+          node "$WD_ACTION_PATH/scripts/public-ci-gate.mjs" "${args[@]}"
+        fi
