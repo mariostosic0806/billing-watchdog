@@ -47,6 +47,9 @@ jobs:
               }
               const html = fs.readFileSync("docs/index.html", "utf8");
               assert.doesNotMatch(html, /BWV2-(?:LIFETIME_TEAM|PRO_MONTHLY)-[0-9]{4}-[0-9]{2}-[0-9]{2}T/);
+              assert.doesNotMatch(html, /PRIVATE KEY|WATCHDOG_ED25519_PRIVATE_KEY/);
+              assert.match(html, /PRIME_TECH_ED25519_PUBLIC_KEY_SPKI_B64/);
+              assert.match(html, /verifyEd25519LicenseInBrowser/);
               assert.match(html, /REDACTED IN FREE DIAGNOSTIC MODE/);
               assert.match(html, /RLS_PERMISSIVE_NO_TENANT_FILTER/);
               const action = fs.readFileSync("action.yml", "utf8");

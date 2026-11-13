@@ -536,34 +536,129 @@
       return result;
     }
 
-    function unlockProPortal(explicitKey) {
-      const inputEl = document.getElementById("license-key-input");
-      const rawKey = (explicitKey !== undefined ? explicitKey : (inputEl ? inputEl.value : "")).trim();
-      const digest = sha256HexSync(rawKey);
+    // Public-only RFC 8410 Ed25519 SPKI key (44 bytes DER in Base64 — zero private signing material in HTML)
+    const PRIME_TECH_ED25519_PUBLIC_KEY_SPKI_B64 = "MCowBQYDK2VwAyEAxkJtuXeg/fNeir0z70Cg4grr8ZpFXjVQd+Oe1G42IQU=";
+
+    function decodeBase64Bytes(b64, isUrlSafe) {
+      let norm = isUrlSafe ? b64.replace(/-/g, "+").replace(/_/g, "/") : b64;
+      while (norm.length % 4 !== 0) norm += "=";
+      if (typeof atob === "function") {
+        const bin = atob(norm);
+        const out = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i) & 0xff;
+        return out;
+      }
+      if (typeof Buffer !== "undefined") {
+        return new Uint8Array(Buffer.from(norm, "base64"));
+      }
+      throw new Error("Base64 decoder unavailable");
+    }
+
+    function applyProUnlockedUiState(labelSuffix) {
       const statusEl = document.getElementById("license-status-msg");
       const qBadge = document.getElementById("quarantine-lock-badge");
       const pBadge = document.getElementById("patch-lock-badge");
+      isProLicenseUnlocked = true;
+      if (statusEl) {
+        statusEl.innerHTML =
+          'Status: <strong style="color:#6ee7b7;">✅ ' +
+          (labelSuffix || "PRO / LIFETIME LICENSE VERIFIED (Full SQL Remediation Export Unlocked)") +
+          "</strong>";
+      }
+      if (qBadge) {
+        qBadge.className = "sev sev-ok";
+        qBadge.textContent = "✅ PRO UNLOCKED";
+      }
+      if (pBadge) {
+        pBadge.className = "sev sev-ok";
+        pBadge.textContent = "✅ PRO UNLOCKED";
+      }
+      runChaosSimulation(currentChaosFilter);
+      runSqlLinter();
+    }
 
-      if (VALID_LICENSE_SHA256_DIGESTS.indexOf(digest) !== -1) {
-        isProLicenseUnlocked = true;
+    async function verifyEd25519LicenseInBrowser(rawKey, overrideSpkiB64) {
+      const statusEl = document.getElementById("license-status-msg");
+      const trimmed = (rawKey || "").trim();
+      const match = /^BWV2E-(PRO_MONTHLY|LIFETIME_TEAM)-(WATCHDOG_V2|BUNDLE_ALL)-(\d{10,12})-([0-9A-F]{12})-([A-Za-z0-9_-]{86})$/.exec(trimmed);
+      if (!match) {
+        isProLicenseUnlocked = false;
         if (statusEl) {
-          statusEl.innerHTML = 'Status: <strong style="color:#6ee7b7;">✅ PRO / LIFETIME LICENSE VERIFIED (Full SQL Remediation Export Unlocked)</strong>';
+          statusEl.innerHTML = 'Status: <strong style="color:#fca5a5;">❌ Malformed BWV2E Ed25519 License Key.</strong>';
         }
-        if (qBadge) {
-          qBadge.className = "sev sev-ok";
-          qBadge.textContent = "✅ PRO UNLOCKED";
+        return false;
+      }
+      const tier = match[1];
+      const scope = match[2];
+      const expUnix = parseInt(match[3], 10);
+      const custHash12 = match[4];
+      const sigB64Url = match[5];
+
+      const nowUnix = Math.floor(Date.now() / 1000);
+      if (nowUnix > expUnix) {
+        isProLicenseUnlocked = false;
+        if (statusEl) {
+          statusEl.innerHTML = 'Status: <strong style="color:#fca5a5;">❌ License Key Expired (UTC Unix ' + expUnix + '). Renew via Polar / Pro Checkout below.</strong>';
         }
-        if (pBadge) {
-          pBadge.className = "sev sev-ok";
-          pBadge.textContent = "✅ PRO UNLOCKED";
+        return false;
+      }
+
+      const subtle =
+        (typeof globalThis !== "undefined" && globalThis.crypto && globalThis.crypto.subtle) ||
+        (typeof window !== "undefined" && window.crypto && window.crypto.subtle);
+      if (!subtle) {
+        if (statusEl) {
+          statusEl.innerHTML = 'Status: <strong style="color:#fbbf24;">⚠️ Browser WebCrypto Ed25519 unavailable (HTTPS or localhost required).</strong>';
         }
-        runChaosSimulation(currentChaosFilter);
-        runSqlLinter();
+        return false;
+      }
+
+      try {
+        const spkiBytes = decodeBase64Bytes(overrideSpkiB64 || PRIME_TECH_ED25519_PUBLIC_KEY_SPKI_B64, false);
+        const sigBytes = decodeBase64Bytes(sigB64Url, true);
+        if (sigBytes.length !== 64) return false;
+        const canonical = "BWV2E:" + tier + ":" + scope + ":" + expUnix + ":" + custHash12;
+        const msgBytes = new Uint8Array(canonical.length);
+        for (let i = 0; i < canonical.length; i++) msgBytes[i] = canonical.charCodeAt(i) & 0x7f;
+
+        const pubKey = await subtle.importKey("spki", spkiBytes, { name: "Ed25519" }, false, ["verify"]);
+        const ok = await subtle.verify({ name: "Ed25519" }, pubKey, sigBytes, msgBytes);
+        if (ok) {
+          applyProUnlockedUiState("ED25519 " + tier + " VERIFIED (Full SQL Remediation Export Unlocked)");
+          return true;
+        }
+      } catch (_err) {
+        // Fall through to invalid signature message
+      }
+
+      isProLicenseUnlocked = false;
+      if (statusEl) {
+        statusEl.innerHTML = 'Status: <strong style="color:#fca5a5;">❌ Invalid Ed25519 License Signature.</strong>';
+      }
+      return false;
+    }
+
+    function unlockProPortal(explicitKey) {
+      const inputEl = document.getElementById("license-key-input");
+      const rawKey = (explicitKey !== undefined ? explicitKey : (inputEl ? inputEl.value : "")).trim();
+      const statusEl = document.getElementById("license-status-msg");
+
+      if (rawKey.indexOf("BWV2E-") === 0) {
+        if (statusEl) {
+          statusEl.innerHTML = 'Status: <strong style="color:#38bdf8;">⏳ Verifying Asymmetric Ed25519 Signature...</strong>';
+        }
+        verifyEd25519LicenseInBrowser(rawKey);
+        return false;
+      }
+
+      const digest = sha256HexSync(rawKey);
+      if (VALID_LICENSE_SHA256_DIGESTS.indexOf(digest) !== -1) {
+        applyProUnlockedUiState("PRO / LIFETIME LICENSE VERIFIED (Full SQL Remediation Export Unlocked)");
         return true;
       } else {
         isProLicenseUnlocked = false;
         if (statusEl) {
-          statusEl.innerHTML = 'Status: <strong style="color:#fca5a5;">❌ Invalid License Key. Purchase Pro ($49/mo) or Lifetime ($149) below to receive your BWV2-... key.</strong>';
+          statusEl.innerHTML = 'Status: <strong style="color:#fca5a5;">❌ Invalid License Key. Purchase Pro ($49/mo) or Lifetime ($149) below to receive your BWV2E-... key.</strong>';
         }
         return false;
       }
@@ -1249,16 +1344,18 @@
       ].join("\n");
     }
 
-    // Optional Merchant-of-Record Instant Delivery Links (Lemon Squeezy / Polar.sh / Gumroad)
-    // When set, clicking Buy opens the automated checkout that delivers billing-watchdog-pro-v2.zip + license key in 0s.
-    const AUTOMATIC_CHECKOUT_URLS = {
+    // Polar.sh Merchant-of-Record Instant Delivery Links (EU VAT / US Tax + GitHub Repo Invite + BWV2E Key)
+    // Paste your live `https://buy.polar.sh/polar_cl_...` checkout links here to switch buttons from PayPal fallback to instant 0s Polar MoR fulfillment.
+    const POLAR_CHECKOUT_URLS = {
       "49.00": "",
       "149.00": ""
     };
+    const AUTOMATIC_CHECKOUT_URLS = POLAR_CHECKOUT_URLS;
 
     function startPayPalCheckout(itemName, amountUsd) {
-      if (AUTOMATIC_CHECKOUT_URLS[amountUsd] && AUTOMATIC_CHECKOUT_URLS[amountUsd].indexOf("https://") === 0) {
-        window.open(AUTOMATIC_CHECKOUT_URLS[amountUsd], "_blank", "noopener,noreferrer");
+      const configuredMoRUrl = AUTOMATIC_CHECKOUT_URLS[amountUsd];
+      if (configuredMoRUrl && configuredMoRUrl.indexOf("https://") === 0) {
+        window.open(configuredMoRUrl, "_blank", "noopener,noreferrer");
         return;
       }
       const returnUrl = "https://mariostosic0806.github.io/billing-watchdog/?checkout=success";
@@ -1278,11 +1375,33 @@
     toggleGroupBDemo();
 
     if (typeof window !== "undefined" && window.location && window.location.search) {
-      if (window.location.search.indexOf("checkout=success") !== -1) {
-        const statusEl = document.getElementById("license-status-msg");
-        if (statusEl) {
-          statusEl.innerHTML = 'Status: <strong style="color:#6ee7b7;">✅ PayPal Checkout Completed! Send your PayPal receipt email to <a href="mailto:mariostosic@prime-tech.rs?subject=Billing%20Watchdog%20v2%20License%20Key%20Delivery" style="color:#38bdf8;">mariostosic@prime-tech.rs</a> to receive your BWV2-... License Key &amp; Pro ZIP immediately.</strong>';
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const licenseParam = params.get("license");
+        const checkoutState = params.get("checkout");
+        const provider = params.get("provider");
+
+        if (licenseParam && licenseParam.indexOf("BWV2E-") === 0) {
+          const inputEl = document.getElementById("license-key-input");
+          if (inputEl) inputEl.value = licenseParam;
+          if (window.history && typeof window.history.replaceState === "function") {
+            params.delete("license");
+            const cleanQuery = params.toString();
+            window.history.replaceState({}, "", window.location.pathname + (cleanQuery ? "?" + cleanQuery : "") + (window.location.hash || ""));
+          }
+          verifyEd25519LicenseInBrowser(licenseParam);
+        } else if (checkoutState === "success") {
+          const statusEl = document.getElementById("license-status-msg");
+          if (statusEl) {
+            if (provider === "polar") {
+              statusEl.innerHTML = 'Status: <strong style="color:#6ee7b7;">✅ Polar.sh Checkout Completed! Check your inbox for your instant <code>BWV2E-...</code> Ed25519 License Key, <code>billing-watchdog-pro-v2.zip</code> download, and GitHub private repo invite.</strong>';
+            } else {
+              statusEl.innerHTML = 'Status: <strong style="color:#6ee7b7;">✅ Checkout Completed! Send your receipt email to <a href="mailto:mariostosic@prime-tech.rs?subject=Billing%20Watchdog%20v2%20License%20Key%20Delivery" style="color:#38bdf8;">mariostosic@prime-tech.rs</a> to receive your BWV2E-... License Key &amp; Pro ZIP immediately.</strong>';
+            }
+          }
         }
+      } catch (_urlErr) {
+        // Ignore non-standard URL environments in embedded sandboxes
       }
     }
   </script>
