@@ -1,22 +1,22 @@
 # ==============================================================================
-# Drop-in workflow for Next.js + Supabase + Stripe teams.
+# Drop-in GitHub Actions workflow for Next.js + Supabase + Stripe + AI teams.
 # Copy to .github/workflows/billing-watchdog.yml in YOUR repository.
 #
-# Zero exfiltration: runs inside your own GitHub Actions runner, reads Postgres in
-# one READ ONLY transaction and Stripe with a read-only restricted key (rk_*).
-# Only the optional Slack/Discord alert leaves the runner.
+# Zero exfiltration:
+# - Pull requests run `verify-ci` (ProofTwin Free Diagnostic Gate) with ZERO
+#   database URLs and ZERO Stripe keys (safe on forked PRs).
+# - Nightly / manual runs execute inside your own GitHub Actions runner, reading
+#   Postgres in one REPEATABLE READ, READ ONLY transaction and Stripe with a
+#   read-only restricted key (rk_*).
 #
-# Prerequisites
-#   1. reconcile.config.json committed at the repository root
-#      (preview one locally with: node src/cli.ts init --dry-run, see README).
+# Prerequisites for nightly live reconciliation (`reconcile` job):
+#   1. reconcile.config.json committed at the repository root.
 #   2. Repository secrets:
-#        READONLY_DATABASE_URL  dedicated read-only BYPASSRLS role (README "Read-only database role")
+#        READONLY_DATABASE_URL  dedicated read-only BYPASSRLS role
 #        STRIPE_RESTRICTED_KEY  rk_live_... with read access to subscriptions, invoices, prices
 #        SLACK_WEBHOOK_URL / DISCORD_WEBHOOK_URL  optional, used by the nightly alert
-#
-# `@main` follows the latest code: pin it to a release tag or a full commit SHA in production.
 # ==============================================================================
-name: Billing Integrity & Reconciliation Watchdog
+name: Billing Integrity & ProofTwin Security Gate
 
 on:
   schedule:
@@ -32,30 +32,33 @@ on:
         options:
           - scan
           - alert
+          - verify-ci
   pull_request:
     paths:
       - "reconcile.config.json"
       - "supabase/migrations/**"
+      - "app/**"
+      - "src/**"
 
 permissions:
   contents: read
 
 jobs:
-  lint-migrations:
-    # Zero-credential: lints the SQL migrations of the pull request. No database,
-    # no Stripe key, so it is also safe for pull requests from forks.
+  prooftwin-pr-gate:
+    # Zero-credential PR gate: checks SQL migrations, multi-tenant RLS/SECURITY DEFINER
+    # policies, Next.js Stripe webhook raw-body HMAC verification, and LLM Denial-of-Wallet holds.
     if: github.event_name == 'pull_request'
-    name: Offline SQL migration lint
+    name: ProofTwin Zero-Credential PR Gate
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Lint billing migrations (Checks 1-3)
-        uses: mariostosic0806/billing-watchdog@main # pin to a release tag or commit SHA
+      - name: Run ProofTwin SQL, RLS & AI Route Gate
+        uses: mariostosic0806/billing-watchdog@v2.1.0
         with:
-          command: lint-sql
+          command: verify-ci
           config-path: reconcile.config.json
           sql-path: supabase/migrations
 
@@ -95,7 +98,7 @@ jobs:
           echo "command=$cmd" >> "$GITHUB_OUTPUT"
 
       - name: Run read-only billing integrity watchdog
-        uses: mariostosic0806/billing-watchdog@main # pin to a release tag or commit SHA
+        uses: mariostosic0806/billing-watchdog@v2.1.0
         with:
           command: ${{ steps.cmd.outputs.command }}
           config-path: reconcile.config.json
