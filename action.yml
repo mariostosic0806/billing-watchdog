@@ -9,7 +9,7 @@ branding:
 # against the checked-out workspace of the calling repository.
 inputs:
   command:
-    description: "Watchdog sub-command: 'scan' | 'alert' | 'lint-sql' | 'init' (init only prints a dry-run preview here)"
+    description: "Watchdog sub-command: 'scan' | 'alert' | 'lint-sql' | 'lint-code' | 'chaos' | 'verify-ci' | 'init'"
     required: false
     default: "scan"
   config-path:
@@ -17,7 +17,19 @@ inputs:
     required: false
     default: "reconcile.config.json"
   sql-path:
-    description: "lint-sql only: a .sql file or a directory of migrations (e.g. supabase/migrations)"
+    description: "lint-sql / verify-ci: a .sql file or a directory of migrations (e.g. supabase/migrations)"
+    required: false
+    default: ""
+  code-dir:
+    description: "lint-code / verify-ci: TypeScript/Next.js/Prisma directory or file to scan"
+    required: false
+    default: ""
+  mcp-manifest:
+    description: "verify-ci: path to current MCP tools manifest JSON"
+    required: false
+    default: ""
+  mcp-lock:
+    description: "verify-ci: path to pinned MCP tool lockfile JSON for Dry-Run diff"
     required: false
     default: ""
   database-url:
@@ -63,6 +75,9 @@ runs:
         WD_COMMAND: ${{ inputs.command }}
         WD_CONFIG: ${{ inputs.config-path }}
         WD_SQL_PATH: ${{ inputs.sql-path }}
+        WD_CODE_DIR: ${{ inputs.code-dir }}
+        WD_MCP_MANIFEST: ${{ inputs.mcp-manifest }}
+        WD_MCP_LOCK: ${{ inputs.mcp-lock }}
         WD_FAIL_ON_CRITICAL: ${{ inputs.fail-on-critical }}
         DATABASE_URL: ${{ inputs.database-url }}
         STRIPE_RESTRICTED_KEY: ${{ inputs.stripe-restricted-key }}
@@ -71,8 +86,8 @@ runs:
       run: |
         set -euo pipefail
         case "$WD_COMMAND" in
-          scan|alert|lint-sql|init) ;;
-          *) echo "::error::Unsupported command input (expected scan, alert, lint-sql or init)."; exit 2 ;;
+          scan|alert|lint-sql|lint-code|chaos|verify-ci|init) ;;
+          *) echo "::error::Unsupported command input (expected scan, alert, lint-sql, lint-code, chaos, verify-ci or init)."; exit 2 ;;
         esac
         args=("$WD_COMMAND" --config "$WD_CONFIG")
         case "$WD_FAIL_ON_CRITICAL" in
@@ -89,5 +104,27 @@ runs:
             exit 2
           fi
           args+=(--sql-file "$WD_SQL_PATH")
+        fi
+        if [ "$WD_COMMAND" = "lint-code" ]; then
+          if [ -z "$WD_CODE_DIR" ]; then
+            echo "::error::lint-code needs the code-dir input."
+            exit 2
+          fi
+          args+=("$WD_CODE_DIR")
+        fi
+        if [ "$WD_COMMAND" = "verify-ci" ]; then
+          args+=(--dry-run)
+          if [ -n "$WD_SQL_PATH" ]; then
+            args+=(--sql-file "$WD_SQL_PATH")
+          fi
+          if [ -n "$WD_CODE_DIR" ]; then
+            args+=(--code-dir "$WD_CODE_DIR")
+          fi
+          if [ -n "$WD_MCP_MANIFEST" ]; then
+            args+=(--mcp-manifest "$WD_MCP_MANIFEST")
+          fi
+          if [ -n "$WD_MCP_LOCK" ]; then
+            args+=(--mcp-lock "$WD_MCP_LOCK")
+          fi
         fi
         node "$WD_ACTION_PATH/src/cli.ts" "${args[@]}"

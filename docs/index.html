@@ -329,6 +329,7 @@
           <h2>2. Paste <code>schema.sql</code>, <code>route.ts</code>, or <code>schema.prisma</code></h2>
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
             <button type="button" class="btn btn-secondary" style="padding:6px 10px;font-size:12px;" onclick="loadSampleSql('vulnerable')">Load Vulnerable SQL</button>
+            <button type="button" class="btn btn-secondary" style="padding:6px 10px;font-size:12px;" onclick="loadSampleSql('rls_idor')">Load Broken Multi-Tenant RLS</button>
             <button type="button" class="btn btn-secondary" style="padding:6px 10px;font-size:12px;" onclick="loadSampleSql('nextjs')">Load Vulnerable Next.js + AI Stream route.ts</button>
             <button type="button" class="btn btn-secondary" style="padding:6px 10px;font-size:12px;" onclick="loadSampleSql('hardened')">Load Hardened Schema</button>
           </div>
@@ -915,11 +916,39 @@
       "}"
     ].join("\n");
 
+    const BROKEN_RLS_SQL = [
+      "-- Multi-Tenant AI SaaS Schema with Permissive RLS & Unpinned SECURITY DEFINER RPC",
+      "CREATE TABLE public.users (id uuid PRIMARY KEY, stripe_customer_id text UNIQUE);",
+      "CREATE TABLE public.subscriptions (id uuid PRIMARY KEY, user_id uuid, stripe_subscription_id text UNIQUE, status text);",
+      "CREATE TABLE public.wallets (user_id uuid PRIMARY KEY, credits_balance integer NOT NULL CHECK (credits_balance >= 0));",
+      "CREATE TABLE public.credit_transactions (id uuid PRIMARY KEY, user_id uuid, stripe_event_id text UNIQUE, credits_delta integer NOT NULL);",
+      "ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;",
+      "CREATE POLICY users_isolation ON public.users FOR SELECT USING (auth.uid() = id);",
+      "ALTER TABLE public.subscriptions ENABLE ROW LEVEL SECURITY;",
+      "CREATE POLICY subs_isolation ON public.subscriptions FOR SELECT USING (auth.uid() = user_id);",
+      "ALTER TABLE public.wallets ENABLE ROW LEVEL SECURITY;",
+      "-- DEFECT 4: Permissive USING (true) leaks every tenant wallet balance via PostgREST!",
+      "CREATE POLICY wallets_open_read ON public.wallets FOR SELECT USING (true);",
+      "ALTER TABLE public.credit_transactions ENABLE ROW LEVEL SECURITY;",
+      "-- DEFECT 5: auth.role() = 'authenticated' without auth.uid() allows any logged-in user to read all tenants!",
+      "CREATE POLICY tx_any_logged_in ON public.credit_transactions FOR SELECT USING (auth.role() = 'authenticated');",
+      "",
+      "-- DEFECT 6: SECURITY DEFINER RPC accepts target_user_id without auth.uid() check or SET search_path!",
+      "CREATE OR REPLACE FUNCTION public.grant_bonus_credits(target_user_id uuid, delta integer)",
+      "RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$",
+      "BEGIN",
+      "  UPDATE public.wallets SET credits_balance = credits_balance + delta WHERE user_id = target_user_id;",
+      "END;",
+      "$$;"
+    ].join("\n");
+
     function loadSampleSql(mode) {
       if (mode === "hardened") {
         document.getElementById("sql-input").value = HARDENED_SQL;
       } else if (mode === "nextjs") {
         document.getElementById("sql-input").value = VULNERABLE_NEXTJS_TS;
+      } else if (mode === "rls_idor") {
+        document.getElementById("sql-input").value = BROKEN_RLS_SQL;
       } else {
         document.getElementById("sql-input").value = VULNERABLE_SQL;
       }
@@ -970,6 +999,16 @@
             msg: "Deducts LLM credits inside onFinish without a Pre-Flight Hold Reservation. 50 parallel /api/chat requests will bypass the balance check before stream #1 finishes.",
             diffRemove: "- return streamText({ model, onFinish: async ({ usage }) => deductCredits(usage) });",
             diffAdd: "+ return watchdog.executeGuardedAiStream({ userId, estimatedMaxCredits: 100, streamExecutor });"
+          });
+        }
+        if (/\b(streamText|generateText|generateObject|streamObject)\s*\(/.test(sql) && !/auth\.getUser|getServerSession|currentUser\s*\(|verifySession/.test(sql)) {
+          codeFindings.push({
+            sev: "CRITICAL",
+            code: "AST 5 • DENIAL_OF_WALLET_UNGUARDED_AI_ROUTE",
+            table: "POST /api/chat (LLM Endpoint)",
+            msg: "Invokes paid LLM inference without caller session authentication or pre-flight rate/wallet hold, enabling anonymous Denial-of-Wallet API spend.",
+            diffRemove: "- export async function POST(req: Request) { return streamText({ model: openai('gpt-4o') }); }",
+            diffAdd: "+ const user = await requireAuthenticatedUser(req); // + pre-flight credit hold & rate limit"
           });
         }
         const container = document.getElementById("findings-container");
@@ -1073,6 +1112,51 @@
           patchLines.push("ALTER TABLE " + tbl + " ENABLE ROW LEVEL SECURITY;");
         }
         patchLines.push("");
+      }
+
+      const policyRegex = /CREATE\s+POLICY\s+([a-zA-Z0-9_"]+)\s+ON\s+([a-zA-Z0-9_."]+)[^;]*?\b(?:USING|WITH\s+CHECK)\s*\(([^;]+)\)/gi;
+      let polMatch;
+      const badPolicies = [];
+      while ((polMatch = policyRegex.exec(norm)) !== null) {
+        const polName = polMatch[1];
+        const polTable = polMatch[2];
+        const polExpr = polMatch[3];
+        const isPermissiveTrue = /^\s*true\s*$/i.test(polExpr.trim());
+        const isBroadRoleOnly = /auth\.role\s*\(\s*\)\s*=\s*'authenticated'/i.test(polExpr) && !/auth\.(?:uid|jwt)\s*\(/i.test(polExpr);
+        if (isPermissiveTrue || isBroadRoleOnly) {
+          badPolicies.push(polTable + " (" + polName + ")");
+        }
+      }
+      if (badPolicies.length > 0) {
+        findings.push({
+          sev: "CRITICAL",
+          code: "CHECK 4 • RLS_PERMISSIVE_NO_TENANT_FILTER",
+          table: badPolicies.join(", "),
+          msg: "Permissive RLS policy allows cross-tenant reads/writes (USING (true) or auth.role() = 'authenticated' without auth.uid() / auth.jwt() tenant isolation)."
+        });
+        patchLines.push(
+          "-- 4. Replace permissive RLS policies with strict auth.uid() tenant isolation:",
+          "-- DROP POLICY <policy_name> ON <table>; CREATE POLICY tenant_isolation ON <table> USING (auth.uid() = user_id);",
+          ""
+        );
+      }
+
+      if (/SECURITY\s+DEFINER/i.test(norm)) {
+        const lacksSearchPath = !/SET\s+search_path\s*=/i.test(norm);
+        const lacksAuthUid = !/auth\.uid\s*\(/i.test(norm) || !/FUNCTION[\s\S]*?auth\.uid\s*\(/i.test(sql);
+        if (lacksSearchPath || lacksAuthUid) {
+          findings.push({
+            sev: "CRITICAL",
+            code: "CHECK 5 • SECURITY_DEFINER_WITHOUT_AUTH_OR_SEARCH_PATH",
+            table: "SECURITY DEFINER RPC",
+            msg: "SECURITY DEFINER function bypasses RLS without SET search_path = public, pg_temp or explicit auth.uid() caller binding (privilege escalation / IDOR risk)."
+          });
+          patchLines.push(
+            "-- 5. Pin search_path and enforce auth.uid() inside SECURITY DEFINER RPCs:",
+            "-- ALTER FUNCTION public.<fn_name> SET search_path = public, pg_temp;",
+            ""
+          );
+        }
       }
 
       patchLines.push("COMMIT;");
