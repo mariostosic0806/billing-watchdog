@@ -27,16 +27,38 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: ${{ matrix.node }}
-          cache: npm
 
-      - name: Install dependencies
-        run: npm ci --no-audit --no-fund
-
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Tests (offline, mocks only)
-        run: npm test
-
-      - name: Offline SQL linter smoke test (examples/bad-migration.sql)
-        run: npm run lint-sql:example
+      - name: Run full engine suite (private checkout) or public portal & Action security gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f package.json ]; then
+            npm ci --no-audit --no-fund
+            npm run typecheck
+            npm test
+            npm run lint-sql:example
+            npm run verify-ci:demo
+          else
+            node -e '
+              const fs = require("node:fs");
+              const assert = require("node:assert/strict");
+              for (const page of ["docs/index.html", "docs/calculator/index.html", "docs/saferevert/index.html", "action.yml", "examples/bad-migration.sql", "examples/billing-watchdog.yml"]) {
+                assert.ok(fs.existsSync(page), "Missing public artifact: " + page);
+              }
+              const html = fs.readFileSync("docs/index.html", "utf8");
+              assert.doesNotMatch(html, /BWV2-(?:LIFETIME_TEAM|PRO_MONTHLY)-[0-9]{4}-[0-9]{2}-[0-9]{2}T/);
+              assert.match(html, /REDACTED IN FREE DIAGNOSTIC MODE/);
+              assert.match(html, /RLS_PERMISSIVE_NO_TENANT_FILTER/);
+              const action = fs.readFileSync("action.yml", "utf8");
+              const runBlocks = action.split("run: |").slice(1);
+              for (const blk of runBlocks) {
+                const scriptSection = blk.split(/\n    - name:/)[0];
+                assert.doesNotMatch(scriptSection, /\$\{\{\s*inputs\./, "Shell injection guard: inputs must pass via env only");
+              }
+              const wf = fs.readFileSync("examples/billing-watchdog.yml", "utf8");
+              for (const line of wf.split("\n").filter((l) => /^\s*(-\s+)?if:/.test(l))) {
+                assert.doesNotMatch(line, /secrets\./, "Workflow if: must not reference secrets directly");
+              }
+              console.log("Public Portal & Composite Action CI Gate PASSED on Node " + process.version);
+            '
+          fi
