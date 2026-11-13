@@ -19,6 +19,7 @@ on: [pull_request]
 
 permissions:
   contents: read
+  security-events: write
 
 jobs:
   verify:
@@ -30,6 +31,11 @@ jobs:
           command: verify-ci
           sql-path: supabase/migrations
           code-dir: app
+          sarif-file: prooftwin.sarif
+      - if: always() && hashFiles('prooftwin.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: prooftwin.sarif
 ```
 
 ---
@@ -42,6 +48,7 @@ jobs:
 | Permissive Multi-Tenant RLS (`USING (true)`) & `SECURITY DEFINER` RPC escalation | ✅ Detects & blocks PR | ✅ Live `READ ONLY` Cross-JWT RLS Isolation Prober (`src/prooftwin-ci-gate.ts`) |
 | Unverified Stripe Webhooks & Denial-of-Wallet LLM Streaming Routes (`onFinish` race) | ✅ Detects & blocks PR | ✅ Drop-in `executeGuardedAiStream` Two-Phase Hold (`src/state-machine.ts`) & `examples/nextjs-stripe-webhook-route.ts` |
 | MCP Tool Poisoning & Silent Description Rug-Pulls (`--mcp-manifest` / `--mcp-lock`) | ✅ Detects & blocks PR | ✅ Full canonical SHA-256 lockfile generator & Lethal Trifecta risk scorer |
+| OASIS SARIF 2.1.0 GitHub Code Scanning & PR Annotations (`sarif-file` / `--sarif-out`) | ✅ Exact file + 1-based line annotations | ✅ Full rule remediation metadata across `lint-sql`, `lint-code`, `verify-ci` & `scan` (`src/sarif.ts`) |
 | Live Nightly Stripe ↔ Postgres Drift (`ZOMBIE_SUBSCRIPTION`, `DUPLICATE_WEBHOOK_CREDIT_GRANT`, `CREDIT_CONSERVATION_VIOLATION`) | — | ✅ Single `BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY` snapshot + `SLACK_WEBHOOK_URL` / `DISCORD_WEBHOOK_URL` alerts |
 | Active Runaway Credit Circuit-Breaker (`is_billing_quarantined = true`) & Asymmetric `Ed25519` Offline Key (`BWV2E-...`) | — | ✅ Deterministic Dry-Run Preview + Auto-Quarantine (`src/cli.ts`, `src/license.ts`, `src/polar-fulfillment.ts`) |
 
@@ -64,4 +71,4 @@ Every live Pro run opens a single `BEGIN ISOLATION LEVEL REPEATABLE READ, READ O
 
 ## Contact & Licensing
 
-Unlock executable SQL remediation patches and the complete Self-Hosted Pro v2 TypeScript engine (`97` automated state-machine, pentest, and chaos tests) at [mariostosic0806.github.io/billing-watchdog](https://mariostosic0806.github.io/billing-watchdog/) or contact [mariostosic@prime-tech.rs](mailto:mariostosic@prime-tech.rs).
+Unlock executable SQL remediation patches and the complete Self-Hosted Pro v2 TypeScript engine (`105` automated state-machine, pentest, SARIF, and chaos tests) at [mariostosic0806.github.io/billing-watchdog](https://mariostosic0806.github.io/billing-watchdog/) or contact [mariostosic@prime-tech.rs](mailto:mariostosic@prime-tech.rs).

@@ -51,6 +51,9 @@ jobs:
     name: ProofTwin Zero-Credential PR Gate
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -61,6 +64,13 @@ jobs:
           command: verify-ci
           config-path: reconcile.config.json
           sql-path: supabase/migrations
+          sarif-file: prooftwin.sarif
+
+      - name: Upload SARIF 2.1.0 annotations to GitHub Security
+        if: always() && hashFiles('prooftwin.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: prooftwin.sarif
 
   reconcile:
     if: github.event_name != 'pull_request'

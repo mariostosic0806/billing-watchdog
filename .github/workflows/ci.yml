@@ -64,4 +64,19 @@ jobs:
               }
               console.log("Public Portal & Composite Action CI Gate PASSED on Node " + process.version);
             '
+            node scripts/public-ci-gate.mjs lint-sql --sql-file examples/bad-migration.sql --no-fail-on-critical --sarif-out /tmp/public-gate.sarif
+            node -e '
+              const fs = require("node:fs");
+              const assert = require("node:assert/strict");
+              const sarif = JSON.parse(fs.readFileSync("/tmp/public-gate.sarif", "utf8"));
+              assert.equal(sarif.version, "2.1.0");
+              assert.equal(sarif.runs.length, 1);
+              assert.equal(sarif.runs[0].results.length, 5);
+              for (const r of sarif.runs[0].results) {
+                const loc = r.locations[0].physicalLocation;
+                assert.equal(loc.artifactLocation.uri, "examples/bad-migration.sql");
+                assert.ok(loc.region.startLine > 1);
+              }
+              console.log("Public SARIF 2.1.0 Smoke Gate PASSED (" + sarif.runs[0].results.length + " annotations)");
+            '
           fi

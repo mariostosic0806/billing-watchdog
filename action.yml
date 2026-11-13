@@ -32,6 +32,10 @@ inputs:
     description: "verify-ci: path to pinned MCP tool lockfile JSON for Dry-Run diff"
     required: false
     default: ""
+  sarif-file:
+    description: "Optional output path for OASIS SARIF 2.1.0 report compatible with github/codeql-action/upload-sarif@v3 (e.g. prooftwin.sarif)"
+    required: false
+    default: ""
   database-url:
     description: "Read-only PostgreSQL / Supabase connection URI for a dedicated BYPASSRLS read-only role. The watchdog reads inside one BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY transaction verified with SHOW transaction_read_only. Required for scan, alert and init."
     required: false
@@ -81,6 +85,7 @@ runs:
         WD_CODE_DIR: ${{ inputs.code-dir }}
         WD_MCP_MANIFEST: ${{ inputs.mcp-manifest }}
         WD_MCP_LOCK: ${{ inputs.mcp-lock }}
+        WD_SARIF_FILE: ${{ inputs.sarif-file }}
         WD_FAIL_ON_CRITICAL: ${{ inputs.fail-on-critical }}
         DATABASE_URL: ${{ inputs.database-url }}
         STRIPE_RESTRICTED_KEY: ${{ inputs.stripe-restricted-key }}
@@ -129,6 +134,12 @@ runs:
           if [ -n "$WD_MCP_LOCK" ]; then
             args+=(--mcp-lock "$WD_MCP_LOCK")
           fi
+        fi
+        if [ -n "$WD_SARIF_FILE" ]; then
+          case "$WD_COMMAND" in
+            scan|lint-sql|lint-code|verify-ci) args+=(--sarif-out "$WD_SARIF_FILE") ;;
+            *) echo "::error::sarif-file is only supported for scan, lint-sql, lint-code or verify-ci."; exit 2 ;;
+          esac
         fi
         if [ -f "$WD_ACTION_PATH/src/cli.ts" ]; then
           node "$WD_ACTION_PATH/src/cli.ts" "${args[@]}"
