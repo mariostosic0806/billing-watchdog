@@ -99,4 +99,5 @@ jobs:
   #
   #     - name: Run read-only billing integrity watchdog (Self-Hosted Pro v2)
   #       run: |
-  #         npx billing-watchdog alert --config reconcile.config.json --redact-entities
+  #         # Assumes the Self-Hosted Pro v2 package is installed or vendored at ./billing-watchdog-pro
+  #         node ./billing-watchdog-pro/src/cli.ts alert --config reconcile.config.json --redact-entities
