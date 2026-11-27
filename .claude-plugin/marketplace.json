@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "billing-watchdog",
+  "owner": {
+    "name": "Mario Stosic",
+    "email": "mariostosic@prime-tech.rs",
+    "url": "https://github.com/mariostosic0806"
+  },
+  "metadata": {
+    "description": "Zero-credential static billing, Supabase/PostgreSQL RLS, Stripe webhook, streaming AI credit, and MCP integrity auditor for Claude Code.",
+    "version": "2.4.2"
+  },
+  "plugins": [
+    {
+      "name": "billing-watchdog",
+      "source": "./plugins/billing-watchdog",
+      "description": "Audit Stripe webhooks, Supabase/PostgreSQL RLS, SECURITY DEFINER RPCs, streaming AI credit holds, and .mcp.json manifests locally with zero credentials.",
+      "version": "2.4.2",
+      "author": {
+        "name": "Mario Stosic",
+        "email": "mariostosic@prime-tech.rs",
+        "url": "https://github.com/mariostosic0806"
+      },
+      "homepage": "https://mariostosic0806.github.io/billing-watchdog/",
+      "repository": "https://github.com/mariostosic0806/billing-watchdog",
+      "license": "MIT",
+      "keywords": [
+        "stripe",
+        "supabase",
+        "postgres",
+        "rls",
+        "billing",
+        "security",
+        "nextjs",
+        "mcp"
+      ]
+    }
+  ]
+}

@@ -45,9 +45,32 @@ jobs:
             node -e '
               const fs = require("node:fs");
               const assert = require("node:assert/strict");
-              for (const page of ["docs/index.html", "docs/terms.html", "docs/privacy.html", "docs/refund-policy.html", "action.yml", "examples/bad-migration.sql", "examples/billing-watchdog.yml", "skills/stripe-supabase-billing-guard/SKILL.md"]) {
+              for (const page of ["docs/index.html", "docs/terms.html", "docs/privacy.html", "docs/refund-policy.html", "action.yml", "examples/bad-migration.sql", "examples/billing-watchdog.yml", "skills/stripe-supabase-billing-guard/SKILL.md", "LICENSE", ".claude-plugin/marketplace.json", "plugins/billing-watchdog/.claude-plugin/plugin.json", "plugins/billing-watchdog/LICENSE", "plugins/billing-watchdog/README.md", "plugins/billing-watchdog/commands/audit.md", "plugins/billing-watchdog/skills/stripe-supabase-billing-guard/SKILL.md", "plugins/billing-watchdog/scripts/public-ci-gate.mjs"]) {
                 assert.ok(fs.existsSync(page), "Missing public artifact: " + page);
               }
+              assert.equal(
+                fs.readFileSync("scripts/public-ci-gate.mjs", "utf8"),
+                fs.readFileSync("plugins/billing-watchdog/scripts/public-ci-gate.mjs", "utf8"),
+                "Plugin public-ci-gate.mjs drifted from root scripts/public-ci-gate.mjs"
+              );
+              assert.equal(
+                fs.readFileSync("skills/stripe-supabase-billing-guard/SKILL.md", "utf8"),
+                fs.readFileSync("plugins/billing-watchdog/skills/stripe-supabase-billing-guard/SKILL.md", "utf8"),
+                "Plugin SKILL.md drifted from root skills/stripe-supabase-billing-guard/SKILL.md"
+              );
+              const walkPlugin = (dir) => {
+                for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+                  const full = dir + "/" + ent.name;
+                  if (ent.isDirectory()) {
+                    assert.notEqual(ent.name, "bin", "Plugin must not ship top-level bin/ directory");
+                    walkPlugin(full);
+                  } else {
+                    const sz = fs.statSync(full).size;
+                    assert.ok(sz < 262144, "Plugin file exceeds 256 KiB limit: " + full + " (" + sz + " B)");
+                  }
+                }
+              };
+              walkPlugin("plugins/billing-watchdog");
               const html = fs.readFileSync("docs/index.html", "utf8");
               const leakScan = ["docs/index.html", "docs/terms.html", "docs/privacy.html", "docs/refund-policy.html", ...fs.readdirSync("docs/assets").filter((f) => /\.(?:js|css)$/.test(f)).map((f) => "docs/assets/" + f)];
               for (const file of leakScan) {

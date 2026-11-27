@@ -1,0 +1,23 @@
+{
+  "name": "billing-watchdog",
+  "version": "2.4.2",
+  "description": "Deterministic static auditor for Stripe webhooks, Supabase/PostgreSQL RLS, SECURITY DEFINER RPCs, streaming AI credit holds, and .mcp.json manifests. Runs locally with zero credentials or network calls.",
+  "author": {
+    "name": "Mario Stosic",
+    "email": "mariostosic@prime-tech.rs",
+    "url": "https://github.com/mariostosic0806"
+  },
+  "homepage": "https://mariostosic0806.github.io/billing-watchdog/",
+  "repository": "https://github.com/mariostosic0806/billing-watchdog",
+  "license": "MIT",
+  "keywords": [
+    "stripe",
+    "supabase",
+    "postgres",
+    "rls",
+    "billing",
+    "security",
+    "nextjs",
+    "mcp"
+  ]
+}
